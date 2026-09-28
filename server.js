@@ -21,7 +21,7 @@ app.get("/version", (req, res) => {
 
 app.get("/cloud",(req, res) =>{
     res.json({
-        name:"bakry",
+        name:"bakry alnour jarallah mohamed",
         age:"29"
     })
 }
