@@ -4,7 +4,7 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 
 app.get("/", (req, res) => {
-    res.send("Company CI/CD Demo Application Abubakar Cloud Speciliesst");
+    res.send("Company CI/CD Demo Application Abubakar Cloud Speciliessts");
 });
 
 app.get("/health", (req, res) => {
