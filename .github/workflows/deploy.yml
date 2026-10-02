@@ -33,7 +33,7 @@ jobs:
       name: production
 
     steps:
-      - name: Checkout code
+      - name: Checkout exact tested commit
         uses: actions/checkout@v4
 
       - name: Setup SSH
@@ -43,17 +43,23 @@ jobs:
           chmod 600 ~/.ssh/deploy_key
           ssh-keyscan -H "${{ secrets.EC2_HOST }}" >> ~/.ssh/known_hosts
 
-      - name: Deploy application
+      - name: Deploy exact commit
         run: |
+          set -e
+
           ssh -i ~/.ssh/deploy_key \
             ${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }} << 'EOF'
 
-            set -e  
+            set -e
+
             cd /var/www/company-cicd-app/company-pipline
 
             git fetch origin
-            git reset --hard origin/main
-        
+
+            git checkout main
+
+            git reset --hard ${{ github.sha }}
+
             npm ci
 
             sudo systemctl restart company-app
