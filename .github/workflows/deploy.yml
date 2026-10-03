@@ -93,6 +93,9 @@ jobs:
     needs: deploy-production
     runs-on: ubuntu-latest
 
+    environment:
+      name: Disaster-Recovery
+
     steps:
 
       - name: Checkout exact tested commit
