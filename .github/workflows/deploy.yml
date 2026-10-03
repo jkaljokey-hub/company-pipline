@@ -5,6 +5,9 @@ on:
 
 jobs:
 
+  # ==========================================
+  # 1. TEST
+  # ==========================================
   test:
     runs-on: ubuntu-latest
 
@@ -25,7 +28,10 @@ jobs:
         run: npm test
 
 
-  deploy:
+  # ==========================================
+  # 2. PRODUCTION DEPLOYMENT
+  # ==========================================
+  deploy-production:
     needs: test
     runs-on: ubuntu-latest
 
@@ -33,17 +39,21 @@ jobs:
       name: production
 
     steps:
+
       - name: Checkout exact tested commit
         uses: actions/checkout@v4
 
       - name: Setup SSH
         run: |
           mkdir -p ~/.ssh
+
           echo "${{ secrets.EC2_SSH_KEY }}" > ~/.ssh/deploy_key
+
           chmod 600 ~/.ssh/deploy_key
+
           ssh-keyscan -H "${{ secrets.EC2_HOST }}" >> ~/.ssh/known_hosts
 
-      - name: Deploy exact commit
+      - name: Deploy Production
         run: |
           set -e
 
@@ -69,3 +79,63 @@ jobs:
             curl -f http://localhost:3000/health
 
           EOF
+
+      - name: Production health check
+        run: |
+          echo "Production deployment successful"
+          echo "Production health check passed"
+
+
+  # ==========================================
+  # 3. DR DEPLOYMENT
+  # ==========================================
+  deploy-dr:
+    needs: deploy-production
+    runs-on: ubuntu-latest
+
+    steps:
+
+      - name: Checkout exact tested commit
+        uses: actions/checkout@v4
+
+      - name: Setup SSH
+        run: |
+          mkdir -p ~/.ssh
+
+          echo "${{ secrets.EC2_SSH_KEY }}" > ~/.ssh/deploy_key
+
+          chmod 600 ~/.ssh/deploy_key
+
+          ssh-keyscan -H "${{ secrets.DR_EC2_HOST }}" >> ~/.ssh/known_hosts
+
+      - name: Deploy DR
+        run: |
+          set -e
+
+          ssh -i ~/.ssh/deploy_key \
+            ${{ secrets.DR_EC2_USER }}@${{ secrets.DR_EC2_HOST }} << 'EOF'
+
+            set -e
+
+            cd /var/www/company-cicd-app/company-pipline
+
+            git fetch origin
+
+            git checkout main
+
+            git reset --hard ${{ github.sha }}
+
+            npm ci
+
+            sudo systemctl restart company-app
+
+            sleep 5
+
+            curl -f http://localhost:3000/health
+
+          EOF
+
+      - name: DR health check
+        run: |
+          echo "DR deployment successful"
+          echo "DR health check passed"
