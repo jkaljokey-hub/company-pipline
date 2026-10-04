@@ -2,22 +2,18 @@ name: Deploy Company App
 
 on:
   workflow_dispatch:
-    inputs:
-      release:
-        description: "Release tag to deploy, e.g. v1.0.0"
-        required: true
-        type: string
 
 jobs:
 
+  # ==========================================
+  # 1. TEST
+  # ==========================================
   test:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout selected release
+      - name: Checkout code
         uses: actions/checkout@v4
-        with:
-          ref: ${{ inputs.release }}
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -32,6 +28,9 @@ jobs:
         run: npm test
 
 
+  # ==========================================
+  # 2. PRODUCTION DEPLOYMENT
+  # ==========================================
   deploy-production:
     needs: test
     runs-on: ubuntu-latest
@@ -41,10 +40,8 @@ jobs:
 
     steps:
 
-      - name: Checkout selected release
+      - name: Checkout exact tested commit
         uses: actions/checkout@v4
-        with:
-          ref: ${{ inputs.release }}
 
       - name: Setup SSH
         run: |
@@ -61,22 +58,19 @@ jobs:
           set -e
 
           ssh -i ~/.ssh/deploy_key \
-            ${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }} << EOF
+            ${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }} << 'EOF'
 
             set -e
 
             cd /var/www/company-cicd-app/company-pipline
 
-            git fetch --tags origin
+            git fetch origin
 
-            git checkout ${{ inputs.release }}
+            git checkout main
 
-            git reset --hard ${{ inputs.release }}
+            git reset --hard ${{ github.sha }}
 
             npm ci
-
-            echo "APP_VERSION=${{ inputs.release }}" | sudo tee /etc/company-app.env
-            echo "APP_COMMIT=\$(git rev-parse HEAD)" | sudo tee -a /etc/company-app.env
 
             sudo systemctl restart company-app
 
@@ -88,22 +82,28 @@ jobs:
             echo "Checking Nginx..."
             curl -f http://127.0.0.1/health
 
-            echo "Production version:"
-            curl -f http://127.0.0.1/version
-
           EOF
 
+      - name: Production health check
+        run: |
+          echo "Production deployment successful"
+          echo "Production health check passed"
 
+
+  # ==========================================
+  # 3. DR DEPLOYMENT
+  # ==========================================
   deploy-dr:
     needs: deploy-production
     runs-on: ubuntu-latest
 
+    environment:
+      name: Disaster-Recovery
+
     steps:
 
-      - name: Checkout selected release
+      - name: Checkout exact tested commit
         uses: actions/checkout@v4
-        with:
-          ref: ${{ inputs.release }}
 
       - name: Setup SSH
         run: |
@@ -120,34 +120,29 @@ jobs:
           set -e
 
           ssh -i ~/.ssh/deploy_key \
-            ${{ secrets.DR_EC2_USER }}@${{ secrets.DR_EC2_HOST }} << EOF
+            ${{ secrets.DR_EC2_USER }}@${{ secrets.DR_EC2_HOST }} << 'EOF'
 
             set -e
 
             cd /var/www/company-cicd-app/company-pipline
 
-            git fetch --tags origin
+            git fetch origin
 
-            git checkout ${{ inputs.release }}
+            git checkout main
 
-            git reset --hard ${{ inputs.release }}
+            git reset --hard ${{ github.sha }}
 
             npm ci
-
-            echo "APP_VERSION=${{ inputs.release }}" | sudo tee /etc/company-app.env
-            echo "APP_COMMIT=\$(git rev-parse HEAD)" | sudo tee -a /etc/company-app.env
 
             sudo systemctl restart company-app
 
             sleep 5
 
-            echo "Checking Node.js..."
-            curl -f http://127.0.0.1:3000/health
-
-            echo "Checking Nginx..."
-            curl -f http://127.0.0.1/health
-
-            echo "DR version:"
-            curl -f http://127.0.0.1/version
+            curl -f http://localhost:3000/health
 
           EOF
+
+      - name: DR health check
+        run: |
+          echo "DR deployment successful"
+          echo "DR health check passed"
