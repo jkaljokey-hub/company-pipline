@@ -76,7 +76,11 @@ jobs:
 
             sleep 5
 
-            curl -f http://localhost:3000/health
+            echo "Checking Node.js..."
+            curl -f http://127.0.0.1:3000/health
+
+            echo "Checking Nginx..."
+            curl -f http://127.0.0.1/health
 
           EOF
 
