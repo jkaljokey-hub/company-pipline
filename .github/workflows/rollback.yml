@@ -1,0 +1,104 @@
+name: Rollback Company App
+
+on:
+  workflow_dispatch:
+    inputs:
+      commit_sha:
+        description: "Commit SHA to rollback to"
+        required: true
+        type: string
+
+jobs:
+
+  rollback-production:
+    runs-on: ubuntu-latest
+
+    environment:
+      name: production
+
+    steps:
+
+      - name: Setup SSH
+        run: |
+          mkdir -p ~/.ssh
+
+          echo "${{ secrets.EC2_SSH_KEY }}" > ~/.ssh/deploy_key
+
+          chmod 600 ~/.ssh/deploy_key
+
+          ssh-keyscan -H "${{ secrets.EC2_HOST }}" >> ~/.ssh/known_hosts
+
+      - name: Rollback Production
+        run: |
+          set -e
+
+          ssh -i ~/.ssh/deploy_key \
+            ${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }} << EOF
+
+            set -e
+
+            cd /var/www/company-cicd-app/company-pipline
+
+            git fetch origin
+
+            git reset --hard ${{ inputs.commit_sha }}
+
+            npm ci
+
+            sudo systemctl restart company-app
+
+            sleep 5
+
+            echo "Checking Node.js..."
+            curl -f http://127.0.0.1:3000/health
+
+            echo "Checking Nginx..."
+            curl -f http://127.0.0.1/health
+
+          EOF
+
+
+  rollback-dr:
+    needs: rollback-production
+    runs-on: ubuntu-latest
+
+    steps:
+
+      - name: Setup SSH
+        run: |
+          mkdir -p ~/.ssh
+
+          echo "${{ secrets.EC2_SSH_KEY }}" > ~/.ssh/deploy_key
+
+          chmod 600 ~/.ssh/deploy_key
+
+          ssh-keyscan -H "${{ secrets.DR_EC2_HOST }}" >> ~/.ssh/known_hosts
+
+      - name: Rollback DR
+        run: |
+          set -e
+
+          ssh -i ~/.ssh/deploy_key \
+            ${{ secrets.DR_EC2_USER }}@${{ secrets.DR_EC2_HOST }} << EOF
+
+            set -e
+
+            cd /var/www/company-cicd-app/company-pipline
+
+            git fetch origin
+
+            git reset --hard ${{ inputs.commit_sha }}
+
+            npm ci
+
+            sudo systemctl restart company-app
+
+            sleep 5
+
+            echo "Checking Node.js..."
+            curl -f http://127.0.0.1:3000/health
+
+            echo "Checking Nginx..."
+            curl -f http://127.0.0.1/health
+
+          EOF
