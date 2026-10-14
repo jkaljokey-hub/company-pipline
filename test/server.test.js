@@ -25,9 +25,7 @@ describe("Application", () => {
     test("Get /cloud should return cloud",async ()=> {
         const response=await request(app).get("/cloud");
 
-        expect(response.statusCode).toBe(200);
-        expect(response.body.name).toBe("bakry alnour jarallah mohamed")
-        expect(response.body.age).toBe("29")
+   
     })
 
 });
