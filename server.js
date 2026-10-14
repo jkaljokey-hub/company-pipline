@@ -366,8 +366,8 @@ app.get("/", (req, res) => {
             <div class="eyebrow">Cloud Engineering & DevOps</div>
 
             <h1>
-                Building reliable<br>
-                <span>cloud infrastructure.</span>
+                CI/CD  pipline<br>
+                <span>Test cloud infrastructure.</span>
             </h1>
 
             <p>
