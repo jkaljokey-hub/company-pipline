@@ -1,104 +1,195 @@
+
 name: Rollback Company App
 
 on:
   workflow_dispatch:
     inputs:
-      commit_sha:
-        description: "Commit SHA to rollback to"
+      release_tag:
+        description: "Release tag to rollback to (e.g. v1.0.2)"
         required: true
         type: string
 
+permissions:
+  contents: read
+
 jobs:
 
+  # ==========================================
+  # 1. VALIDATE RELEASE TAG
+  # ==========================================
+  validate-release:
+    runs-on: ubuntu-latest
+
+    outputs:
+      commit_sha: ${{ steps.resolve.outputs.commit_sha }}
+
+    steps:
+      - name: Checkout repository and fetch tags
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: Resolve release tag to commit SHA
+        id: resolve
+        env:
+          RELEASE_TAG: ${{ inputs.release_tag }}
+        run: |
+          set -euo pipefail
+
+          if [[ ! "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Invalid release tag format: $RELEASE_TAG"
+            exit 1
+          fi
+
+          git fetch --force origin \
+            "refs/tags/${RELEASE_TAG}:refs/tags/${RELEASE_TAG}"
+
+          if ! git rev-parse --verify \
+            --quiet "${RELEASE_TAG}^{commit}" >/dev/null; then
+            echo "Release tag does not point to a valid commit."
+            exit 1
+          fi
+
+          COMMIT_SHA=$(git rev-parse "${RELEASE_TAG}^{commit}")
+
+          echo "Release tag: $RELEASE_TAG"
+          echo "Commit SHA: $COMMIT_SHA"
+
+          echo "commit_sha=$COMMIT_SHA" >> "$GITHUB_OUTPUT"
+
+
+  # ==========================================
+  # 2. ROLLBACK PRODUCTION
+  # ==========================================
   rollback-production:
+    needs: validate-release
     runs-on: ubuntu-latest
 
     environment:
       name: production
 
     steps:
-
       - name: Setup SSH
+        env:
+          SSH_KEY: ${{ secrets.EC2_SSH_KEY }}
+          EC2_HOST: ${{ secrets.EC2_HOST }}
         run: |
+          set -euo pipefail
+
           mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
 
-          echo "${{ secrets.EC2_SSH_KEY }}" > ~/.ssh/deploy_key
-
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/deploy_key
           chmod 600 ~/.ssh/deploy_key
 
-          ssh-keyscan -H "${{ secrets.EC2_HOST }}" >> ~/.ssh/known_hosts
+          ssh-keyscan -H "$EC2_HOST" >> ~/.ssh/known_hosts
 
       - name: Rollback Production
+        env:
+          EC2_HOST: ${{ secrets.EC2_HOST }}
+          EC2_USER: ${{ secrets.EC2_USER }}
+          COMMIT_SHA: ${{ needs.validate-release.outputs.commit_sha }}
         run: |
-          set -e
+          set -euo pipefail
 
           ssh -i ~/.ssh/deploy_key \
-            ${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }} << EOF
+            "$EC2_USER@$EC2_HOST" \
+            bash -s -- "$COMMIT_SHA" <<'REMOTE'
+          set -euo pipefail
 
-            set -e
+          COMMIT_SHA="$1"
+          APP_DIR="/var/www/company-cicd-app/company-pipline"
 
-            cd /var/www/company-cicd-app/company-pipline
+          cd "$APP_DIR"
 
-            git fetch origin
+          git fetch origin --tags
 
-            git reset --hard ${{ inputs.commit_sha }}
+          git cat-file -e "${COMMIT_SHA}^{commit}"
 
-            npm ci
+          echo "Rolling Production back to $COMMIT_SHA"
 
-            sudo systemctl restart company-app
+          git reset --hard "$COMMIT_SHA"
 
-            sleep 5
+          npm ci
 
-            echo "Checking Node.js..."
-            curl -f http://127.0.0.1:3000/health
+          sudo systemctl restart company-app
 
-            echo "Checking Nginx..."
-            curl -f http://127.0.0.1/health
+          sleep 5
 
-          EOF
+          echo "Checking Node.js..."
+          curl --fail --show-error http://127.0.0.1:3000/health
+
+          echo "Checking Nginx..."
+          curl --fail --show-error http://127.0.0.1/health
+
+          echo "Production rollback and health checks passed."
+          REMOTE
 
 
+  # ==========================================
+  # 3. ROLLBACK DISASTER RECOVERY
+  # ==========================================
   rollback-dr:
-    needs: rollback-production
+    needs: [validate-release, rollback-production]
     runs-on: ubuntu-latest
 
+    environment:
+      name: Disaster-Recovery
+
     steps:
-
       - name: Setup SSH
+        env:
+          SSH_KEY: ${{ secrets.EC2_SSH_KEY }}
+          DR_EC2_HOST: ${{ secrets.DR_EC2_HOST }}
         run: |
+          set -euo pipefail
+
           mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
 
-          echo "${{ secrets.EC2_SSH_KEY }}" > ~/.ssh/deploy_key
-
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/deploy_key
           chmod 600 ~/.ssh/deploy_key
 
-          ssh-keyscan -H "${{ secrets.DR_EC2_HOST }}" >> ~/.ssh/known_hosts
+          ssh-keyscan -H "$DR_EC2_HOST" >> ~/.ssh/known_hosts
 
       - name: Rollback DR
+        env:
+          DR_EC2_HOST: ${{ secrets.DR_EC2_HOST }}
+          DR_EC2_USER: ${{ secrets.DR_EC2_USER }}
+          COMMIT_SHA: ${{ needs.validate-release.outputs.commit_sha }}
         run: |
-          set -e
+          set -euo pipefail
 
           ssh -i ~/.ssh/deploy_key \
-            ${{ secrets.DR_EC2_USER }}@${{ secrets.DR_EC2_HOST }} << EOF
+            "$DR_EC2_USER@$DR_EC2_HOST" \
+            bash -s -- "$COMMIT_SHA" <<'REMOTE'
+          set -euo pipefail
 
-            set -e
+          COMMIT_SHA="$1"
+          APP_DIR="/var/www/company-cicd-app/company-pipline"
 
-            cd /var/www/company-cicd-app/company-pipline
+          cd "$APP_DIR"
 
-            git fetch origin
+          git fetch origin --tags
 
-            git reset --hard ${{ inputs.commit_sha }}
+          git cat-file -e "${COMMIT_SHA}^{commit}"
 
-            npm ci
+          echo "Rolling DR back to $COMMIT_SHA"
 
-            sudo systemctl restart company-app
+          git reset --hard "$COMMIT_SHA"
 
-            sleep 5
+          npm ci
 
-            echo "Checking Node.js..."
-            curl -f http://127.0.0.1:3000/health
+          sudo systemctl restart company-app
 
-            echo "Checking Nginx..."
-            curl -f http://127.0.0.1/health
+          sleep 5
 
-          EOF
+          echo "Checking Node.js..."
+          curl --fail --show-error http://127.0.0.1:3000/health
+
+          echo "Checking Nginx..."
+          curl --fail --show-error http://127.0.0.1/health
+
+          echo "DR rollback and health checks passed."
+          REMOTE

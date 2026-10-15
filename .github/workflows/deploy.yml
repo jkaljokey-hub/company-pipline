@@ -3,6 +3,10 @@ name: Deploy Company App
 on:
   workflow_dispatch:
 
+permissions:
+
+    contents: read
+
 jobs:
 
   # ==========================================
@@ -146,3 +150,69 @@ jobs:
         run: |
           echo "DR deployment successful"
           echo "DR health check passed"
+
+    
+  # ==========================================
+  # 4. CREATE AUTOMATIC RELEASE TAG
+  # ==========================================
+  create-release-tag:
+    needs: deploy-dr
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout repository and fetch tags
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: Configure Git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - name: Generate next version tag
+        id: version
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          git fetch --tags origin
+
+          latest_tag=$(git tag --list \
+            | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' \
+            | sort -V \
+            | tail -n 1 || true)
+
+          if [ -z "$latest_tag" ]; then
+            new_tag="v1.0.0"
+          else
+            IFS='.' read -r major minor patch \
+              <<< "${latest_tag#v}"
+
+            new_tag="v${major}.${minor}.$((patch + 1))"
+          fi
+
+          echo "Latest release: ${latest_tag:-none}"
+          echo "New release: $new_tag"
+
+          echo "tag=$new_tag" >> "$GITHUB_OUTPUT"
+
+      - name: Create and push release tag
+        env:
+          RELEASE_TAG: ${{ steps.version.outputs.tag }}
+        run: |
+          set -euo pipefail
+
+          git tag -a "$RELEASE_TAG" \
+            "$GITHUB_SHA" \
+            -m "Release $RELEASE_TAG"
+
+          git push origin "$RELEASE_TAG"
+
+          echo "Release $RELEASE_TAG created successfully."
+          echo "Deployed commit: $GITHUB_SHA"
