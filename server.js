@@ -353,7 +353,7 @@ app.get("/", (req, res) => {
         <nav>
             <a href="/" class="brand">
                 <span class="brand-icon">⌘</span>
-                BAKRY CLOUD
+                Multi Cloud
             </a>
 
             <div class="nav-status">
