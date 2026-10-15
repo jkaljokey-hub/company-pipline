@@ -471,7 +471,7 @@ app.get("/", (req, res) => {
 
         <footer class="footer">
             <span>© 2026 <strong>Bakry Cloud</strong></span>
-            <span>Designed for reliabiliy. Delivered through automation.</span>
+            <span>Designed for eliabiliy. Delivered through automation.</span>
         </footer>
 
     </div>
