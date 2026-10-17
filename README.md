@@ -1,4 +1,4 @@
-# AWS EC2 CI/CD Pipeline with GitHub Actions
+# AWS EC2 CI/CD Pipeline 
 
 Automated testing, controlled Production deployments, Disaster Recovery (DR) deployment, health checks, release versioning, and rollback for a Node.js application running on AWS EC2.
 
