@@ -1,6 +1,6 @@
 
 const express = require("express");
-
+const pool = require("./db");
 const app = express();
 const PORT = process.env.PORT || 3000;
 
@@ -517,4 +517,66 @@ app.get("/cloud", (req, res) => {
     });
 });
 
+
+
+// Check database connectivity
+app.get("/db-health", async (req, res) => {
+  try {
+    await pool.query("SELECT 1");
+
+    res.json({
+      status: "connected",
+      database: "PostgreSQL"
+    });
+  } catch (error) {
+    console.error("Database error:", error.message);
+
+    res.status(503).json({
+      status: "database_unavailable"
+    });
+  }
+});
+
+// Create table and insert sample data
+app.post("/customers/demo", async (req, res) => {
+  try {
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS customers (
+        id SERIAL PRIMARY KEY,
+        name VARCHAR(100) NOT NULL,
+        created_at TIMESTAMPTZ DEFAULT NOW()
+      )
+    `);
+
+    const result = await pool.query(
+      "INSERT INTO customers (name) VALUES ($1) RETURNING *",
+      ["CloudOps Test Customer"]
+    );
+
+    res.status(201).json(result.rows[0]);
+  } catch (error) {
+    console.error("Insert error:", error.message);
+
+    res.status(500).json({
+      error: "database_operation_failed"
+    });
+  }
+});
+
+// Read customers
+app.get("/customers", async (req, res) => {
+  try {
+    const result = await pool.query(
+      "SELECT * FROM customers ORDER BY id DESC LIMIT 20"
+    );
+
+    res.json(result.rows);
+  } catch (error) {
+    console.error("Query error:", error.message);
+
+    res.status(500).json({
+      error: "database_operation_failed"
+    });
+  }
+});
 module.exports = app;
